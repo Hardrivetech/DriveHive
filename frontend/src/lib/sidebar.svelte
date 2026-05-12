@@ -1,6 +1,5 @@
 <script>
-  // Note: Adjust the import path based on where you ultimately store chat.js
-  import { switchChannel, currentChannelId } from '../../../backend/internal/api/chat.js';
+  import { switchChannel, currentChannelId } from '../stores/chat.js';
   
   // This array would typically be populated by a fetch call to /channels?hive_id=...
   /** @type {Array<{id: string, name: string}>} */

@@ -80,19 +80,33 @@ func (h *Hub) Run() {
 				authorized, err := database.IsUserInChannel(h.DB, client.UserID, msg.RoomID)
 				if err != nil || !authorized {
 					log.Printf("Unauthorized join attempt: user %s to room %s", client.Username, msg.RoomID)
-					continue
+					// If unauthorized, do not set client.RoomID or send history.
+					// The client remains in their previous room (or no room).
+				} else {
+					client.RoomID = msg.RoomID
+					history, err := database.GetRecentMessages(h.DB, msg.RoomID, time.Time{}, 50)
+					if err != nil {
+						log.Printf("Error fetching history for room %s: %v", msg.RoomID, err)
+					} else {
+						for _, oldMsg := range history {
+							data, _ := json.Marshal(oldMsg)
+							client.Send <- data
+						}
+					}
+					// Broadcast presence to other clients in the room
+					presenceMsg := models.Message{
+						RoomID:    client.RoomID,
+						Type:      "presence",
+						Sender:    client.Username,
+						Content:   "online", // Or "joined"
+						Timestamp: time.Now(),
+					}
+					presenceData, _ := json.Marshal(presenceMsg)
+					h.broadcastToRoom(client.RoomID, presenceData)
 				}
-
-				client.RoomID = msg.RoomID
-				history, err := database.GetRecentMessages(h.DB, msg.RoomID, time.Time{}, 50)
-				if err != nil {
-					log.Printf("Error fetching history for room %s: %v", msg.RoomID, err)
-					continue
-				}
-				for _, oldMsg := range history {
-					data, _ := json.Marshal(oldMsg)
-					client.Send <- data
-				}
+				// After processing a 'join' message, we don't need to broadcast it as a regular message
+				// The frontend handles the UI update based on the history received.
+				continue // Done processing this 'join' message
 			}
 
 			// If the frontend didn't specify a room, use the client's current room
