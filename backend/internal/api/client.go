@@ -2,6 +2,8 @@ package api
 
 import (
 	"drivehive-backend/internal/auth"
+	"drivehive-backend/internal/models"
+	"encoding/json"
 	"log"
 	"net/http"
 
@@ -12,7 +14,16 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // For development; refine for production
+		// In production, validate against tauri://localhost or similar
+		origin := r.Header.Get("Origin")
+		if origin == "http://localhost:5173" || origin == "tauri://localhost" {
+			return true
+		}
+		// Allow empty origin for local development tools/testing
+		if origin == "" {
+			return true
+		}
+		return false
 	},
 }
 
@@ -21,6 +32,7 @@ type Client struct {
 	Hub      *Hub
 	Conn     *websocket.Conn
 	Username string
+	UserID   int
 	RoomID   string // Track which hive the user is currently in
 	Send     chan []byte
 }
@@ -39,7 +51,14 @@ func (c *Client) ReadPump() {
 			}
 			break
 		}
-		c.Hub.Broadcast <- message
+
+		var msg models.Message
+		if err := json.Unmarshal(message, &msg); err != nil {
+			log.Printf("error unmarshaling message: %v", err)
+			continue
+		}
+
+		c.Hub.Broadcast <- msg
 	}
 }
 
@@ -66,7 +85,7 @@ func (c *Client) WritePump() {
 func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	// Extract and verify token from query parameter
 	token := r.URL.Query().Get("token")
-	username, err := auth.VerifyToken(token)
+	claims, err := auth.VerifyToken(token)
 	if err != nil {
 		log.Printf("Unauthorized WS connection attempt: %v", err)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -78,7 +97,7 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	client := &Client{Hub: hub, Conn: conn, Username: username, Send: make(chan []byte, 256)}
+	client := &Client{Hub: hub, Conn: conn, Username: claims.Username, UserID: claims.UserID, Send: make(chan []byte, 256)}
 	client.Hub.Register <- client
 	go client.WritePump()
 	go client.ReadPump()
