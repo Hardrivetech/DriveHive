@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use tauri::Manager;
 use tauri_plugin_shell::{ShellExt, process::CommandEvent};
 
 fn main() {
@@ -20,10 +21,12 @@ fn main() {
         .map_err(|e| e.to_string())?
         .args(["-port", "8080", "-db", db_path.to_str().unwrap()]);
 
-      let (mut rx, _child) = sidecar.spawn()
+      let (mut rx, child) = sidecar.spawn()
         .map_err(|e| e.to_string())?;
 
       tauri::async_runtime::spawn(async move {
+        // Keep the child handle alive so the sidecar process doesn't exit immediately
+        let _child_handle = child;
         while let Some(event) = rx.recv().await {
           if let CommandEvent::Stdout(line) = event {
             // Forward Go logs to the terminal

@@ -6,6 +6,7 @@ import (
 	"drivehive-backend/internal/models"
 	"encoding/json"
 	"log"
+	"time"
 )
 
 // Hub maintains the set of active clients and broadcasts messages to the clients.
@@ -60,19 +61,30 @@ func (h *Hub) Run() {
 						}
 
 						client.RoomID = msg.RoomID
-						history, _ := database.GetRecentMessages(h.DB, msg.RoomID, 50)
+						history, err := database.GetRecentMessages(h.DB, msg.RoomID, time.Time{}, 50)
+						if err != nil {
+							log.Printf("Error fetching history for room %s: %v", msg.RoomID, err)
+							continue
+						}
 						for _, oldMsg := range history {
 							data, _ := json.Marshal(oldMsg)
 							client.Send <- data
 						}
 					}
 				}
-				continue
+				// Don't 'continue' here anymore; we want to broadcast the join event
+				// to other people in the room so their UI can show the user as "active"
 			}
 
+			// Typing indicators and presence updates are "volatile"
+			// We broadcast them to the room but DO NOT save them to the database.
+			isVolatile := msg.Type == "typing" || msg.Type == "presence" || msg.Type == "join"
+
 			// Normal chat: Save to DB
-			if err := database.SaveMessage(h.DB, msg); err != nil {
-				log.Printf("DB Save Error: %v", err)
+			if !isVolatile {
+				if err := database.SaveMessage(h.DB, msg); err != nil {
+					log.Printf("DB Save Error: %v", err)
+				}
 			}
 
 			// Prepare data once for all clients
