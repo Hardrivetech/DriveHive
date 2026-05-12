@@ -14,8 +14,13 @@ func InitDB(filepath string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	// Create messages table
+	// Initialize tables
 	query := `
+	CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT UNIQUE,
+		password_hash TEXT
+	);
 	CREATE TABLE IF NOT EXISTS messages (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		room_id TEXT,

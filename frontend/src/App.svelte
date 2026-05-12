@@ -9,6 +9,8 @@
   let status = $state("Connecting...");
   let chatWindow = $state();
   let username = $state("");
+  let password = $state("");
+  let isRegistering = $state(false);
   let isReady = $state(false);
   
   let rooms = ["general", "gaming", "dev"];
@@ -50,10 +52,19 @@
     socket?.send(JSON.stringify(payload));
   }
 
-  function handleLogin() {
-    if (username.trim() !== "") {
+  async function handleAuth() {
+    const endpoint = isRegistering ? "/register" : "/login";
+    const response = await fetch(`http://localhost:8080${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+
+    if (response.ok) {
       isReady = true;
       if (socket?.readyState === WebSocket.OPEN) joinRoom(activeRoom);
+    } else {
+      alert(await response.text());
     }
   }
 
@@ -71,6 +82,13 @@
     socket.send(JSON.stringify(payload));
     newMessage = "";
   }
+
+  /** @param {SubmitEvent} event */
+  async function handleLogin(event) {
+    console.log("Attempting login for:", username);
+    await handleAuth();
+  }
+
 </script>
 
 {#if !isReady}
@@ -78,8 +96,9 @@
     <div class="login-box">
       <h1>Welcome to DriveHive</h1>
       <p>Enter a username to join the swarm</p>
-      <form onsubmit={(e) => { e.preventDefault(); handleLogin(); }}>
+      <form onsubmit={(e) => { e.preventDefault(); handleLogin(e); }}>
         <input bind:value={username} placeholder="Username..." maxlength="20" />
+        <input type="password" bind:value={password} placeholder="Password..." />
         <button type="submit">Join Hive</button>
       </form>
     </div>
