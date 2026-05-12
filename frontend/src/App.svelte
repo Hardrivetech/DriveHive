@@ -2,10 +2,10 @@
   import { onMount } from 'svelte';
   import Register from './lib/Register.svelte';
   import Sidebar from './lib/Sidebar.svelte';
-  import { connect, messages, socket, isConnected, currentChannelId, switchChannel } from './stores/chat.js';
+  import { connect, messages, socket, currentChannelId, switchChannel, isConnected } from './chat.js';
 
   let newMessage = $state("");
-  let status = $derived($socket ? "Connected" : "Disconnected");
+  let status = $derived($isConnected ? "Connected" : "Connecting...");
   let chatWindow = $state();
   let username = $state("");
   let password = $state("");

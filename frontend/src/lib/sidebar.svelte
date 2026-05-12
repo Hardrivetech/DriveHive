@@ -1,5 +1,5 @@
 <script>
-  import { switchChannel, currentChannelId } from '../stores/chat.js';
+  import { switchChannel, currentChannelId, isConnected } from '../chat.js';
   
   // This array would typically be populated by a fetch call to /channels?hive_id=...
   /** @type {Array<{id: string, name: string}>} */
@@ -12,6 +12,10 @@
    * @param {string} id
    */
   function handleChannelClick(id) {
+    if (!$isConnected) {
+      console.warn("Please wait for connection...");
+      return;
+    }
     switchChannel(id);
   }
 </script>
@@ -28,6 +32,7 @@
           class="channel-link" 
           class:active={$currentChannelId === channel.id}
           on:click={() => handleChannelClick(channel.id)}
+          disabled={!$isConnected}
         >
           <span class="prefix">#</span>
           <span class="name">{channel.name}</span>
@@ -87,6 +92,11 @@
   .channel-link.active {
     background-color: #40444b;
     color: #fff;
+  }
+
+  .channel-link:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
 
   .prefix {
