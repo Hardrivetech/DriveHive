@@ -1,25 +1,34 @@
 <script>
   import { onMount } from 'svelte';
+  import Register from './lib/Register.svelte';
+  import Sidebar from './lib/Sidebar.svelte';
+  import { connect, messages, socket, isConnected, currentChannelId, switchChannel } from '../../backend/internal/api/chat.js';
 
-  /** @type {WebSocket | null} */
-  let socket = null;
-  /** @type {any[]} */
-  let messages = $state([]);
   let newMessage = $state("");
-  let status = $state("Connecting...");
+  let status = $derived($socket ? "Connected" : "Disconnected");
   let chatWindow = $state();
   let username = $state("");
   let password = $state("");
   let isRegistering = $state(false);
   let isReady = $state(false);
   
-  let rooms = ["general", "gaming", "dev"];
-  let activeRoom = $state("general");
+  let rooms = [
+    { id: "general", name: "general" },
+    { id: "gaming", name: "gaming" },
+    { id: "dev", name: "dev" }
+  ];
 
   // Auto-scroll to bottom when messages change
   $effect(() => {
-    if (messages.length && chatWindow) {
+    if ($messages.length && chatWindow) {
       chatWindow.scrollTo({ top: chatWindow.scrollHeight, behavior: 'smooth' });
+    }
+  });
+
+  // Join default room when socket is ready
+  $effect(() => {
+    if ($isConnected && isReady && !$currentChannelId) {
+      switchChannel('general');
     }
   });
 
@@ -35,44 +44,12 @@
       if (res.ok) {
         username = data.username;
         isReady = true;
-        connectWebSocket(data.token);
+        connect(data.token);
       } else {
         localStorage.removeItem("dh_user");
       }
     }
   });
-
-  /** @param {string} token */
-  function connectWebSocket(token) {
-    if (socket) socket.close();
-    
-    // Pass token in URL for WebSocket authentication
-    socket = new WebSocket(`ws://localhost:8080/ws?token=${token}`);
-
-    socket.onopen = () => {
-      status = "Connected";
-      if (isReady) joinRoom(activeRoom);
-    };
-
-    socket.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.room_id === activeRoom) {
-        messages = [...messages, msg];
-      }
-    };
-
-    socket.onclose = () => {
-      status = "Disconnected";
-    };
-  }
-
-  /** @param {string} room */
-  function joinRoom(room) {
-    activeRoom = room;
-    messages = [];
-    const payload = { type: "join", room_id: room, sender: socket?.url || "init", content: "" };
-    socket?.send(JSON.stringify(payload));
-  }
 
   async function handleAuth() {
     const endpoint = isRegistering ? "/register" : "/login";
@@ -86,26 +63,29 @@
       if (!isRegistering) {
         const data = await response.json();
         localStorage.setItem("dh_user", JSON.stringify(data));
-        connectWebSocket(data.token);
+        connect(data.token);
+        isReady = true;
+      } else {
+        isRegistering = false;
+        alert("Registration successful! Please login with your new account.");
       }
-      isReady = true;
     } else {
       alert(await response.text());
     }
   }
 
   function sendMessage() {
-    if (newMessage.trim() === "" || !socket) return;
+    if (newMessage.trim() === "" || !$socket) return;
 
     const payload = {
       type: "chat",
-      room_id: activeRoom,
+      room_id: $currentChannelId,
       sender: username,
       content: newMessage,
       timestamp: new Date()
     };
 
-    socket.send(JSON.stringify(payload));
+    $socket.send(JSON.stringify(payload));
     newMessage = "";
   }
 
@@ -120,44 +100,37 @@
 {#if !isReady}
   <div class="login-screen">
     <div class="login-box">
-      <h1>Welcome to DriveHive</h1>
-      <p>Enter a username to join the swarm</p>
-      <form onsubmit={(e) => { e.preventDefault(); handleLogin(e); }}>
-        <input bind:value={username} placeholder="Username..." maxlength="20" />
-        <input type="password" bind:value={password} placeholder="Password..." />
-        <button type="submit">Join Hive</button>
-      </form>
+      {#if isRegistering}
+        <Register 
+          on:success={() => isRegistering = false} 
+          on:toggle={() => isRegistering = false} 
+        />
+      {:else}
+        <h1>Welcome to DriveHive</h1>
+        <p>Enter your credentials to join the swarm</p>
+        <form onsubmit={(e) => { e.preventDefault(); handleLogin(e); }}>
+          <input bind:value={username} placeholder="Username..." maxlength="20" />
+          <input type="password" bind:value={password} placeholder="Password..." />
+          <button type="submit">Join Hive</button>
+        </form>
+        <p class="toggle-text">
+          New here? <button class="link-btn" onclick={() => isRegistering = true}>Create an account</button>
+        </p>
+      {/if}
     </div>
   </div>
 {:else}
   <div class="app-layout">
-    <aside class="sidebar">
-      <div class="sidebar-header">Hives</div>
-      <nav>
-        {#each rooms as room}
-          <button 
-            class="room-btn" 
-            class:active={activeRoom === room}
-            onclick={() => joinRoom(room)}
-          >
-            # {room}
-          </button>
-        {/each}
-      </nav>
-      <div class="user-info">
-        <div class="status-dot"></div>
-        <span>{username}</span>
-      </div>
-    </aside>
+    <Sidebar channels={rooms} {username} />
 
     <main class="container">
       <header>
-        <h1># {activeRoom}</h1>
+        <h1># {$currentChannelId || 'Select a channel'}</h1>
         <span class="status">{status}</span>
       </header>
 
       <div class="chat-window" bind:this={chatWindow}>
-        {#each messages as msg}
+        {#each $messages as msg}
           <div class="message">
             <div class="msg-header">
               <span class="sender">{msg.sender}</span>
@@ -172,7 +145,7 @@
         onsubmit={(e) => { e.preventDefault(); sendMessage(); }} 
         class="input-area"
       >
-        <input bind:value={newMessage} placeholder="Message #{activeRoom}" />
+        <input bind:value={newMessage} placeholder="Message #{$currentChannelId || ''}" />
       </form>
     </main>
   </div>
@@ -185,15 +158,6 @@
   .login-box { background: #36393f; padding: 40px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); text-align: center; }
   
   .app-layout { display: flex; height: 100vh; }
-  
-  .sidebar { width: 240px; background: #2f3136; display: flex; flex-direction: column; }
-  .sidebar-header { padding: 15px; font-weight: bold; border-bottom: 1px solid #26272b; color: #fff; }
-  .room-btn { background: none; border: none; color: #8e9297; text-align: left; padding: 10px 15px; cursor: pointer; font-size: 1rem; }
-  .room-btn:hover { background: #393c43; color: #dcddde; }
-  .room-btn.active { background: #393c43; color: #fff; }
-  
-  .user-info { margin-top: auto; padding: 15px; background: #292b2f; display: flex; align-items: center; gap: 10px; }
-  .status-dot { width: 10px; height: 10px; background: #43b581; border-radius: 50%; }
 
   .container { flex: 1; display: flex; flex-direction: column; background: #36393f; }
   header { padding: 10px 20px; border-bottom: 1px solid #26272b; display: flex; justify-content: space-between; align-items: center; }
@@ -210,4 +174,8 @@
   input { flex: 1; padding: 12px; border-radius: 8px; border: none; background: #40444b; color: #dcddde; margin: 20px; outline: none; }
   
   button[type="submit"] { background: #5865f2; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+  
+  .toggle-text { margin-top: 20px; font-size: 0.9rem; color: #b9bbbe; }
+  .link-btn { background: none; border: none; color: #00aff4; cursor: pointer; padding: 0; font: inherit; }
+  .link-btn:hover { text-decoration: underline; }
 </style>

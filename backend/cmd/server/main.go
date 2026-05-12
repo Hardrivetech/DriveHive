@@ -22,10 +22,11 @@ func enableCORS(next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 
 		// Allow standard dev origins and Tauri production origins
-		if origin == "http://localhost:5173" || origin == "tauri://localhost" || origin == "http://tauri.localhost" {
+		switch origin {
+		case "http://localhost:5173", "tauri://localhost", "http://tauri.localhost":
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-		} else if origin == "" {
+		case "":
 			// Fallback for non-browser clients or direct hits
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
@@ -39,6 +40,14 @@ func enableCORS(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func extractToken(r *http.Request) string {
+	authHeader := r.Header.Get("Authorization")
+	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+		return authHeader[7:]
+	}
+	return ""
 }
 
 func main() {
@@ -56,14 +65,11 @@ func main() {
 	hub := api.NewHub(db)
 	go hub.Run()
 
-	// Helper to extract JWT from Authorization header
-	extractToken := func(r *http.Request) string {
-		authHeader := r.Header.Get("Authorization")
-		if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
-			return authHeader[7:]
-		}
-		return ""
-	}
+	// Health check for Tauri sidecar discovery
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": "0.1.0"})
+	})
 
 	// Authentication Handlers
 	http.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {

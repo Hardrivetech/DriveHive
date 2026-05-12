@@ -58,7 +58,10 @@ func (c *Client) ReadPump() {
 			continue
 		}
 
-		c.Hub.Broadcast <- msg
+		c.Hub.Broadcast <- HubMessage{
+			Client:  c,
+			Message: msg,
+		}
 	}
 }
 

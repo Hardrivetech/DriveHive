@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// HubMessage wraps a message with its source client
+type HubMessage struct {
+	Client  *Client
+	Message models.Message
+}
+
 // Hub maintains the set of active clients and broadcasts messages to the clients.
 type Hub struct {
 	// Registered clients.
@@ -18,7 +24,7 @@ type Hub struct {
 	DB *sql.DB
 
 	// Inbound messages from the clients.
-	Broadcast chan models.Message
+	Broadcast chan HubMessage
 
 	// Register requests from the clients.
 	Register chan *Client
@@ -29,7 +35,7 @@ type Hub struct {
 
 func NewHub(db *sql.DB) *Hub {
 	return &Hub{
-		Broadcast:  make(chan models.Message),
+		Broadcast:  make(chan HubMessage),
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
 		clients:    make(map[*Client]bool),
@@ -44,43 +50,58 @@ func (h *Hub) Run() {
 			h.clients[client] = true
 		case client := <-h.Unregister:
 			if _, ok := h.clients[client]; ok {
+				// Notify others that the user has left
+				if client.RoomID != "" {
+					leaveMsg := models.Message{
+						RoomID:    client.RoomID,
+						Type:      "presence",
+						Sender:    client.Username,
+						Content:   "offline",
+						Timestamp: time.Now(),
+					}
+					messageData, _ := json.Marshal(leaveMsg)
+					h.broadcastToRoom(client.RoomID, messageData)
+				}
+
 				delete(h.clients, client)
 				close(client.Send)
 			}
-		case msg := <-h.Broadcast:
+		case hbm := <-h.Broadcast:
+			client := hbm.Client
+			msg := hbm.Message
+
+			// Always enforce the sender from the authenticated session
+			msg.Sender = client.Username
+			msg.Timestamp = time.Now()
+
 			// Special case: Initial join loads history
 			if msg.Type == "join" {
-				for client := range h.clients {
-					if client.Username == msg.Sender {
-						// Verify membership before allowing join/history access
-						authorized, err := database.IsUserInChannel(h.DB, client.UserID, msg.RoomID)
-						if err != nil || !authorized {
-							log.Printf("Unauthorized join attempt: user %s to room %s", client.Username, msg.RoomID)
-							// Optionally send a system message back to the client about the error
-							continue
-						}
-
-						client.RoomID = msg.RoomID
-						history, err := database.GetRecentMessages(h.DB, msg.RoomID, time.Time{}, 50)
-						if err != nil {
-							log.Printf("Error fetching history for room %s: %v", msg.RoomID, err)
-							continue
-						}
-						for _, oldMsg := range history {
-							data, _ := json.Marshal(oldMsg)
-							client.Send <- data
-						}
-					}
+				// Verify membership before allowing join/history access
+				authorized, err := database.IsUserInChannel(h.DB, client.UserID, msg.RoomID)
+				if err != nil || !authorized {
+					log.Printf("Unauthorized join attempt: user %s to room %s", client.Username, msg.RoomID)
+					continue
 				}
-				// Don't 'continue' here anymore; we want to broadcast the join event
-				// to other people in the room so their UI can show the user as "active"
+
+				client.RoomID = msg.RoomID
+				history, err := database.GetRecentMessages(h.DB, msg.RoomID, time.Time{}, 50)
+				if err != nil {
+					log.Printf("Error fetching history for room %s: %v", msg.RoomID, err)
+					continue
+				}
+				for _, oldMsg := range history {
+					data, _ := json.Marshal(oldMsg)
+					client.Send <- data
+				}
 			}
 
-			// Typing indicators and presence updates are "volatile"
-			// We broadcast them to the room but DO NOT save them to the database.
+			// If the frontend didn't specify a room, use the client's current room
+			if msg.RoomID == "" {
+				msg.RoomID = client.RoomID
+			}
+
 			isVolatile := msg.Type == "typing" || msg.Type == "presence" || msg.Type == "join"
 
-			// Normal chat: Save to DB
 			if !isVolatile {
 				if err := database.SaveMessage(h.DB, msg); err != nil {
 					log.Printf("DB Save Error: %v", err)
@@ -90,16 +111,25 @@ func (h *Hub) Run() {
 			// Prepare data once for all clients
 			messageData, _ := json.Marshal(msg)
 
-			// Broadcast only to clients in the same room
-			for client := range h.clients {
-				if client.RoomID == msg.RoomID {
-					select {
-					case client.Send <- messageData:
-					default:
-						close(client.Send)
-						delete(h.clients, client)
-					}
-				}
+			// Defensive: don't broadcast if no room is assigned
+			if msg.RoomID == "" {
+				continue
+			}
+
+			h.broadcastToRoom(msg.RoomID, messageData)
+		}
+	}
+}
+
+// Helper to broadcast to a specific room
+func (h *Hub) broadcastToRoom(roomID string, data []byte) {
+	for client := range h.clients {
+		if client.RoomID == roomID {
+			select {
+			case client.Send <- data:
+			default:
+				close(client.Send)
+				delete(h.clients, client)
 			}
 		}
 	}
