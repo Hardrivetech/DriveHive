@@ -189,5 +189,5 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 ## Contact
 
 [Hardrive Technologies](https://github.com/Hardrive-Technologies)
-[text](https://github.com/Hardrivetech)
+[Hardrivetech](https://github.com/Hardrivetech)
 
