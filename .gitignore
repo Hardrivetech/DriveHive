@@ -1,0 +1,32 @@
+# Build Artifacts
+dist/
+build/
+target/
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Dependencies
+node_modules/
+vendor/
+
+# IDEs and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# App Specific
+frontend/src-tauri/target/
+backend/drivehive.db
+backend/drivehive.db-journal
+
+# Environment variables
+.env
+.env.local
+
+# Go workspace
+go.work
