@@ -16,7 +16,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		// In production, validate against tauri://localhost or similar
 		origin := r.Header.Get("Origin")
-		if origin == "http://localhost:5173" || origin == "tauri://localhost" {
+		if origin == "http://localhost:5173" || origin == "tauri://localhost" || origin == "http://tauri.localhost" {
 			return true
 		}
 		// Allow empty origin for local development tools/testing

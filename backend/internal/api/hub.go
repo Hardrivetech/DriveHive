@@ -79,7 +79,16 @@ func (h *Hub) Run() {
 				// Verify membership before allowing join/history access
 				authorized, err := database.IsUserInChannel(h.DB, client.UserID, msg.RoomID)
 				if err != nil || !authorized {
-					log.Printf("Unauthorized join attempt: user %s to room %s", client.Username, msg.RoomID)
+					log.Printf("Join denied: user %s is not in hive for room %s", client.Username, msg.RoomID)
+					// Notify the client why it failed
+					errorMsg := models.Message{
+						Type:      "system",
+						Content:   "You don't have access to this channel or it doesn't exist.",
+						RoomID:    msg.RoomID,
+						Timestamp: time.Now(),
+					}
+					data, _ := json.Marshal(errorMsg)
+					client.Send <- data
 					// If unauthorized, do not set client.RoomID or send history.
 					// The client remains in their previous room (or no room).
 				} else {
@@ -114,6 +123,11 @@ func (h *Hub) Run() {
 				msg.RoomID = client.RoomID
 			}
 
+			// If we still have no room, we can't do anything
+			if msg.RoomID == "" {
+				continue
+			}
+
 			isVolatile := msg.Type == "typing" || msg.Type == "presence" || msg.Type == "join"
 
 			if !isVolatile {
@@ -124,11 +138,6 @@ func (h *Hub) Run() {
 
 			// Prepare data once for all clients
 			messageData, _ := json.Marshal(msg)
-
-			// Defensive: don't broadcast if no room is assigned
-			if msg.RoomID == "" {
-				continue
-			}
 
 			h.broadcastToRoom(msg.RoomID, messageData)
 		}

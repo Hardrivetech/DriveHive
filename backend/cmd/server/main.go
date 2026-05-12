@@ -93,11 +93,19 @@ func main() {
 			return
 		}
 
-		_, err = db.Exec("INSERT INTO users (username, password_hash) VALUES (?, ?)", creds.Username, string(hashed))
+		res, err := db.Exec("INSERT INTO users (username, password_hash) VALUES (?, ?)", creds.Username, string(hashed))
 		if err != nil {
 			http.Error(w, "Username already exists", http.StatusBadRequest)
 			return
 		}
+
+		// Auto-join the default global hive
+		userID, _ := res.LastInsertId()
+		err = database.AddUserToHive(db, "default-hive", int(userID))
+		if err != nil {
+			log.Printf("Warning: Failed to auto-join user %d to default hive: %v", userID, err)
+		}
+
 		w.WriteHeader(http.StatusCreated)
 	})
 

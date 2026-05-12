@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"drivehive-backend/internal/models"
+	"fmt"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -62,8 +63,21 @@ func InitDB(filepath string) (*sql.DB, error) {
 		timestamp DATETIME
 	);
 	CREATE INDEX IF NOT EXISTS idx_room_id ON messages(room_id);`
-
 	_, err = db.Exec(query)
+	if err != nil {
+		return nil, err
+	}
+
+	// Seed default data for development
+	_, err = db.Exec("INSERT OR IGNORE INTO hives (id, name, owner_id) VALUES ('default-hive', 'DriveHive Global', NULL)")
+	if err != nil {
+		return nil, fmt.Errorf("failed to seed default hive: %w", err)
+	}
+	_, err = db.Exec("INSERT OR IGNORE INTO channels (id, hive_id, name, type) VALUES ('general', 'default-hive', 'General', 'text')")
+	if err != nil {
+		return nil, fmt.Errorf("failed to seed default channel: %w", err)
+	}
+
 	return db, err
 }
 
@@ -72,8 +86,16 @@ func CreateHive(db *sql.DB, id, name string, ownerID int) error {
 	if err != nil {
 		return err
 	}
-	tx.Exec("INSERT INTO hives (id, name, owner_id) VALUES (?, ?, ?)", id, name, ownerID)
-	tx.Exec("INSERT INTO hive_members (hive_id, user_id, role) VALUES (?, ?, 'owner')", id, ownerID)
+	_, err = tx.Exec("INSERT INTO hives (id, name, owner_id) VALUES (?, ?, ?)", id, name, ownerID)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	_, err = tx.Exec("INSERT INTO hive_members (hive_id, user_id, role) VALUES (?, ?, 'owner')", id, ownerID)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -215,7 +237,7 @@ func SaveMessage(db *sql.DB, msg models.Message) error {
 	}
 	defer stmt.Close()
 
-	_, err = stmt.Exec(msg.RoomID, msg.Type, msg.Sender, msg.Content, time.Now())
+	_, err = stmt.Exec(msg.RoomID, msg.Type, msg.Sender, msg.Content, msg.Timestamp)
 	return err
 }
 
