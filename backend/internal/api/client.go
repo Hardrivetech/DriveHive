@@ -1,6 +1,7 @@
 package api
 
 import (
+	"drivehive-backend/internal/auth"
 	"log"
 	"net/http"
 
@@ -17,10 +18,11 @@ var upgrader = websocket.Upgrader{
 
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
-	Hub    *Hub
-	Conn   *websocket.Conn
-	RoomID string // Track which hive the user is currently in
-	Send   chan []byte
+	Hub      *Hub
+	Conn     *websocket.Conn
+	Username string
+	RoomID   string // Track which hive the user is currently in
+	Send     chan []byte
 }
 
 // ReadPump pumps messages from the websocket connection to the hub.
@@ -62,12 +64,21 @@ func (c *Client) WritePump() {
 
 // ServeWs handles websocket requests from the peer.
 func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
+	// Extract and verify token from query parameter
+	token := r.URL.Query().Get("token")
+	username, err := auth.VerifyToken(token)
+	if err != nil {
+		log.Printf("Unauthorized WS connection attempt: %v", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	client := &Client{Hub: hub, Conn: conn, Send: make(chan []byte, 256)}
+	client := &Client{Hub: hub, Conn: conn, Username: username, Send: make(chan []byte, 256)}
 	client.Hub.Register <- client
 	go client.WritePump()
 	go client.ReadPump()

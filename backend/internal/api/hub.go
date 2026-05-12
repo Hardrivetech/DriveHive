@@ -51,17 +51,14 @@ func (h *Hub) Run() {
 			if err := json.Unmarshal(message, &msg); err == nil {
 				// Special case: Initial join loads history
 				if msg.Type == "join" {
-					// In a real-world scenario, we'd track which client sent this via a session.
-					// For now, we find the client whose connection matches the sender ID
-					// or simply apply the RoomID to the intended client.
 					for client := range h.clients {
-						// If we identify the sender (msg.Sender currently holds "self" or IP)
-						// we assign them to the room and push history.
-						client.RoomID = msg.RoomID
-						history, _ := database.GetRecentMessages(h.DB, msg.RoomID, 50)
-						for _, oldMsg := range history {
-							data, _ := json.Marshal(oldMsg)
-							client.Send <- data
+						if client.Username == msg.Sender {
+							client.RoomID = msg.RoomID
+							history, _ := database.GetRecentMessages(h.DB, msg.RoomID, 50)
+							for _, oldMsg := range history {
+								data, _ := json.Marshal(oldMsg)
+								client.Send <- data
+							}
 						}
 					}
 					continue

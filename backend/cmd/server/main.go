@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"drivehive-backend/internal/api"
+	"drivehive-backend/internal/auth"
 	"drivehive-backend/internal/database"
 	"encoding/json"
 	"flag"
@@ -58,8 +59,29 @@ func main() {
 			return
 		}
 
-		// For now, return a simple success. We will add JWT tokens in the next iteration.
-		json.NewEncoder(w).Encode(map[string]string{"username": creds.Username})
+		token, err := auth.GenerateToken(creds.Username)
+		if err != nil {
+			http.Error(w, "Error generating token", http.StatusInternalServerError)
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]string{
+			"token":    token,
+			"username": creds.Username,
+		})
+	})
+
+	http.HandleFunc("/validate", func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+		if len(token) > 7 && token[:7] == "Bearer " {
+			token = token[7:]
+		}
+		username, err := auth.VerifyToken(token)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"username": username})
 	})
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {

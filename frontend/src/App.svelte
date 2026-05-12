@@ -23,9 +23,31 @@
     }
   });
 
-  onMount(() => {
-    // Connect to the Go backend
-    socket = new WebSocket("ws://localhost:8080/ws");
+  onMount(async () => {
+    const savedUser = localStorage.getItem("dh_user");
+    if (savedUser) {
+      const data = JSON.parse(savedUser);
+      // Validate token with backend
+      const res = await fetch("http://localhost:8080/validate",{
+        headers: {"Authorization": `Bearer ${data.token}`}
+      });
+
+      if (res.ok) {
+        username = data.username;
+        isReady = true;
+        connectWebSocket(data.token);
+      } else {
+        localStorage.removeItem("dh_user");
+      }
+    }
+  });
+
+  /** @param {string} token */
+  function connectWebSocket(token) {
+    if (socket) socket.close();
+    
+    // Pass token in URL for WebSocket authentication
+    socket = new WebSocket(`ws://localhost:8080/ws?token=${token}`);
 
     socket.onopen = () => {
       status = "Connected";
@@ -42,7 +64,7 @@
     socket.onclose = () => {
       status = "Disconnected";
     };
-  });
+  }
 
   /** @param {string} room */
   function joinRoom(room) {
@@ -61,8 +83,12 @@
     });
 
     if (response.ok) {
+      if (!isRegistering) {
+        const data = await response.json();
+        localStorage.setItem("dh_user", JSON.stringify(data));
+        connectWebSocket(data.token);
+      }
       isReady = true;
-      if (socket?.readyState === WebSocket.OPEN) joinRoom(activeRoom);
     } else {
       alert(await response.text());
     }
